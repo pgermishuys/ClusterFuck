@@ -4,6 +4,7 @@ using System.Data;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Reflection;
@@ -11,7 +12,11 @@ using System.Runtime.Remoting.Messaging;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Timers;
+using EventStore.ClientAPI;
+using EventStore.ClientAPI.SystemData;
 using Newtonsoft.Json.Linq;
+using Timer = System.Timers.Timer;
 
 namespace ClusterFuck
 {
@@ -20,12 +25,33 @@ namespace ClusterFuck
         private static readonly List<Node> Nodes = 
             new List<Node>() { new Node(1), new Node(2), new Node(3) };
 
+        private static IEventStoreConnection _connection;
+
         static void Main(string[] args)
         {
             Nodes.ForEach(n => n.Start());
+
+            _connection = EventStoreConnection.Create(ConnectionSettings.Default,
+                ClusterSettings.Create()
+                    .DiscoverClusterViaGossipSeeds()
+                    .SetGossipSeedEndPoints(new[]
+                    {
+                        new IPEndPoint(IPAddress.Loopback, 10004), new IPEndPoint(IPAddress.Loopback, 20004),
+                        new IPEndPoint(IPAddress.Loopback, 30004)
+                    }));
+
+            _connection.ConnectAsync().Wait();
+
             Console.WriteLine("Waiting for nodes to start");
             Console.WriteLine("CBA to write code for this - Go sort out projections then press enter to begin");
             Console.ReadLine();
+
+            var timer = new Timer();
+            timer.AutoReset = true;
+            timer.Interval = 1000;
+            timer.Elapsed += (sender, eventArgs) => WriteSomething();
+            timer.Enabled = true;
+
 
             while (!AreProjectionsFuckedYet())
             {
@@ -35,9 +61,22 @@ namespace ClusterFuck
                 Thread.Sleep(15000);
             }
 
+            timer.Stop();
             Console.WriteLine("Projections fucked!!! (Master was {0})", GetMaster().Name);
             Console.ReadLine();
             Nodes.ForEach(n => n.FuckOff());
+        }
+
+        static void WriteSomething()
+        {
+            
+            var jsons = Enumerable.Range(0, 100).Select(i => { return "{ \"something\": " + i + " }"; });
+
+            var events =
+                jsons.Select(j => new EventData(Guid.NewGuid(), "TestEvent", true, Encoding.UTF8.GetBytes(j), new byte[0]));
+
+            _connection.AppendToStreamAsync("TestStream", ExpectedVersion.Any, events,
+                new UserCredentials("admin", "changeit")).Wait();
         }
 
         static Node GetMaster()
