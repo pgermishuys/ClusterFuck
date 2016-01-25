@@ -46,23 +46,18 @@ namespace ClusterFuck
             Console.WriteLine("CBA to write code for this - Go sort out projections then press enter to begin");
             Console.ReadLine();
 
-            var timer = new Timer();
-            timer.AutoReset = true;
-            timer.Interval = 1000;
-            timer.Elapsed += (sender, eventArgs) => WriteSomething();
-            timer.Enabled = true;
-
+            Node master = GetMaster();
 
             while (!AreProjectionsFuckedYet())
             {
-                var master = GetMaster();
+                master = GetMaster();
                 master.FuckOff();
+                Thread.Sleep(1000);
                 master.Start();
                 Thread.Sleep(15000);
             }
 
-            timer.Stop();
-            Console.WriteLine("Projections fucked!!! (Master was {0})", GetMaster().Name);
+            Console.WriteLine("Projections fucked!!! (Master is {0}, previously {1})", GetMaster().Name, master.Name);
             Console.ReadLine();
             Nodes.ForEach(n => n.FuckOff());
         }
@@ -116,6 +111,8 @@ namespace ClusterFuck
     class Node
     {
         private const string Executable = "ES\\EventStore.ClusterNode.exe";
+        private bool _shouldRestart = true;
+        private DateTime _lastStart = DateTime.MinValue;
         public int Number;
 
         public string Name => $"Node{Number}";
@@ -144,7 +141,21 @@ namespace ClusterFuck
             var args =
                 $"--db ./{Name}DB --log ./{Name}Logs --int-tcp-port={IntTcp} --ext-tcp-port={ExtTcp} --int-http-port={IntHttp} --ext-http-port={ExtHttp} --run-projections=all --cluster-size=3 --discover-via-dns=false --gossip-seed={seeds} --gossip-on-ext=true";
             _nodeProcess = Process.Start(dir + "\\" + Executable, args);
+            _nodeProcess.EnableRaisingEvents = true;
+            _nodeProcess.Exited += NodeProcessOnExited;
+            _lastStart = DateTime.Now;
         }
+
+        private void NodeProcessOnExited(object sender, EventArgs eventArgs)
+        {
+            if (DateTime.Now - _lastStart < TimeSpan.FromSeconds(15))
+            {
+                Console.WriteLine("Restarting node {0}", Name);
+                Start();
+            }
+        }
+
+        public bool IsDead => _nodeProcess.HasExited;
 
         public void FuckOff()
         {
