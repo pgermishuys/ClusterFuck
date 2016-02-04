@@ -52,8 +52,6 @@ namespace ClusterFuck
             {
                 master = GetMaster();
                 master.FuckOff();
-                Thread.Sleep(1000);
-                master.Start();
                 Thread.Sleep(15000);
             }
 
@@ -148,17 +146,16 @@ namespace ClusterFuck
 
         private void NodeProcessOnExited(object sender, EventArgs eventArgs)
         {
-            if (DateTime.Now - _lastStart < TimeSpan.FromSeconds(15))
-            {
-                Console.WriteLine("Restarting node {0}", Name);
-                Start();
-            }
+            Console.WriteLine("[{1}] Restarting node {0}", Name, DateTime.Now.ToString("G"));
+            Thread.Sleep(1000);
+            Start();
         }
 
         public bool IsDead => _nodeProcess.HasExited;
 
         public void FuckOff()
         {
+            Console.WriteLine("[{1}] Killing node {0}", Name, DateTime.Now.ToString("G"));
             _nodeProcess.Kill();   
         }
     }
