@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Diagnostics;
@@ -7,23 +7,18 @@ using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
-using System.Reflection;
-using System.Runtime.Remoting.Messaging;
 using System.Text;
 using System.Threading;
-using System.Threading.Tasks;
-using System.Timers;
 using EventStore.ClientAPI;
 using EventStore.ClientAPI.SystemData;
 using Newtonsoft.Json.Linq;
-using Timer = System.Timers.Timer;
 
 namespace ClusterFuck
 {
     class Program
     {
         private static readonly List<Node> Nodes = 
-            new List<Node>() { new Node(1), new Node(2), new Node(3) };
+            new List<Node>() { new Node(1), new Node(2) };
 
         private static IEventStoreConnection _connection;
 
@@ -36,8 +31,7 @@ namespace ClusterFuck
                     .DiscoverClusterViaGossipSeeds()
                     .SetGossipSeedEndPoints(new[]
                     {
-                        new IPEndPoint(IPAddress.Loopback, 10004), new IPEndPoint(IPAddress.Loopback, 20004),
-                        new IPEndPoint(IPAddress.Loopback, 30004)
+                        new IPEndPoint(IPAddress.Loopback, 10004), new IPEndPoint(IPAddress.Loopback, 20004)
                     }));
 
             _connection.ConnectAsync().Wait();
@@ -46,16 +40,16 @@ namespace ClusterFuck
             Console.WriteLine("CBA to write code for this - Go sort out projections then press enter to begin");
             Console.ReadLine();
 
-            Node master = GetMaster();
+            Node master = GetSlave();
 
             while (!AreProjectionsFuckedYet())
             {
-                master = GetMaster();
+                master = GetSlave();
                 master.FuckOff();
                 Thread.Sleep(15000);
             }
 
-            Console.WriteLine("Projections fucked!!! (Master is {0}, previously {1})", GetMaster().Name, master.Name);
+            Console.WriteLine("Projections fucked!!! (Master is {0}, previously {1})", GetSlave().Name, master.Name);
             Console.ReadLine();
             Nodes.ForEach(n => n.FuckOff());
         }
@@ -72,7 +66,7 @@ namespace ClusterFuck
                 new UserCredentials("admin", "changeit")).Wait();
         }
 
-        static Node GetMaster()
+        static Node GetSlave()
         {
             var c = new HttpClient();
             var req = new HttpRequestMessage(HttpMethod.Get, "http://127.0.0.1:10004/gossip");
@@ -82,7 +76,7 @@ namespace ClusterFuck
             var respContent = resp.Content.ReadAsStringAsync().Result;
             var gossip = JObject.Parse(respContent);
 
-            var master = gossip["members"].First(m => m["state"].ToString() == "Master");
+            var master = gossip["members"].First(m => m["state"].ToString() == "Slave");
             var masterIndex = Convert.ToInt16(master["internalTcpPort"].ToString().First().ToString()) - 1;
 
             return Nodes[masterIndex];
@@ -131,8 +125,8 @@ namespace ClusterFuck
             var dir = Directory.GetCurrentDirectory();
 
             var otherNodes = Number == 1
-                ? new[] {2, 3}
-                : Number == 2 ? new[] {1, 3} : new[] {1, 2};
+                ? new[] {2}
+                : Number == 2 ? new[] {1} : new[] {1};
 
             var seeds = String.Join(",",otherNodes.Select(n => $"127.0.0.1:{n*10000 + 3}"));
 
