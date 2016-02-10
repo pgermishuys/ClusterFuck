@@ -40,30 +40,33 @@ namespace ClusterFuck
             Console.WriteLine("CBA to write code for this - Go sort out projections then press enter to begin");
             Console.ReadLine();
 
-            Node master = GetSlave();
+            Node slave = GetSlave();
 
             while (!AreProjectionsFuckedYet())
             {
-                master = GetSlave();
-                master.FuckOff();
+                WriteSomething();
+                slave = GetSlave();
+                slave.FuckOff();
                 Thread.Sleep(15000);
             }
 
-            Console.WriteLine("Projections fucked!!! (Master is {0}, previously {1})", GetSlave().Name, master.Name);
+            Console.WriteLine("Projections fucked!!! (Slave is {0}, previously {1})", GetSlave().Name, slave.Name);
             Console.ReadLine();
             Nodes.ForEach(n => n.FuckOff());
         }
 
+        static int totalNumberOfWrites = 0;
+        const int numberOfEventsToWriteAtATime = 100;
         static void WriteSomething()
         {
-            
-            var jsons = Enumerable.Range(0, 100).Select(i => { return "{ \"something\": " + i + " }"; });
+            var jsons = Enumerable.Range(0, numberOfEventsToWriteAtATime).Select(i => { return "{ \"something\": " + i + " }"; });
 
             var events =
                 jsons.Select(j => new EventData(Guid.NewGuid(), "TestEvent", true, Encoding.UTF8.GetBytes(j), new byte[0]));
 
             _connection.AppendToStreamAsync("TestStream", ExpectedVersion.Any, events,
                 new UserCredentials("admin", "changeit")).Wait();
+            totalNumberOfWrites += numberOfEventsToWriteAtATime;
         }
 
         static Node GetSlave()
@@ -92,14 +95,13 @@ namespace ClusterFuck
             var respContent = resp.Content.ReadAsStringAsync().Result;
             var projections = JObject.Parse(respContent);
 
-            var statuses = projections["projections"].Select(p => p["status"].ToString());
+            var statuses = projections["projections"].Select(p => new { Status = p["status"].ToString(), NumberOfEventsProcessed = p["eventsProcessedAfterRestart"] });
 
-            Console.WriteLine("[{0}] Checking projections: {1}", DateTime.Now.ToString("G"), string.Join(",", statuses));
-                
-            return statuses.Any(s => !s.Contains("Running"));
+            Console.WriteLine("[{0}] Checking projections: {1}", DateTime.Now.ToString("G"), string.Join(",", statuses.Select(x=> String.Format("{0}/{1}", x.Status, x.NumberOfEventsProcessed))));
+
+            return statuses.Any(s => !s.Status.Contains("Running") || s.NumberOfEventsProcessed.ToString() != totalNumberOfWrites.ToString());
         }
     }
-
     class Node
     {
         private const string Executable = "ES\\EventStore.ClusterNode.exe";
